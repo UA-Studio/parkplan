@@ -1,0 +1,19 @@
+# 개인 도면·결과는 올리지 않음 (예시 도면만 예외)
+*.dxf
+*.dwg
+*.3dm
+!예시/예시_대지.dxf
+test_out/
+*_주차배치/
+# 인증키
+.env
+*.key
+secrets*
+# 파이썬
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+# 묶음
+dist/
+*.zip

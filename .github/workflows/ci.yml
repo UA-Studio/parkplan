@@ -1,0 +1,118 @@
+name: 자동 시험
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: 시험 (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    env:
+      TEST_OUT: ${{ github.workspace }}/test_out
+      PYTHONIOENCODING: utf-8
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest
+      - name: 화면 시험 준비 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          pip install playwright
+          python -m playwright install --with-deps chromium
+      - name: 시험 (명령줄 실행 · 출력 6종 · 기준 대수)
+        run: python -m pytest tests/test_ci.py -v --durations=0
+      - name: 화면 시험 (Linux)
+        if: runner.os == 'Linux'
+        run: python -m pytest tests/test_gui.py -v
+      - name: 결과 요약
+        if: always()
+        shell: python
+        run: |
+          import json, os
+          p = os.path.join(os.environ["TEST_OUT"], "summary.json")
+          d = json.load(open(p, encoding="utf-8")) if os.path.exists(p) else {}
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
+              f.write(f"### ${{ runner.os }} 시험 결과\n\n| 항목 | 결과 |\n|---|---|\n")
+              for k, v in d.items():
+                  f.write(f"| {k} | {v} |\n")
+      - name: 결과 그림·도면 올리기
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: 시험결과-${{ runner.os }}
+          path: test_out/
+          retention-days: 30
+
+  report:
+    name: PR에 확인 그림 붙이기
+    needs: test
+    if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: 시험결과-Linux
+          path: res
+        continue-on-error: true
+      - name: 그림을 ci-images 브랜치에 올리고 PR 댓글 갱신
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          RESULT: ${{ needs.test.result }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -e
+          D="pr-$PR/${SHA:0:7}"
+          git clone --depth 1 --branch ci-images "https://x-access-token:$GH_TOKEN@github.com/$REPO" img 2>/dev/null || {
+            mkdir img && cd img && git init -q -b ci-images && git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$REPO" && cd ..; }
+          mkdir -p "img/$D"
+          i=0
+          for f in res/화면_2_결과.png res/cli_예시/B1_평면.png res/bench_sample.png res/bench_user.png res/bench_big.png res/bench_auto.png; do
+            [ -f "$f" ] && cp "$f" "img/$D/$(printf %02d $i).png"; i=$((i+1))
+          done
+          cd img && git config user.name "github-actions" && git config user.email "actions@github.com"
+          git add -A && (git commit -qm "PR #$PR 확인 그림" && git push -q origin ci-images) || true
+          cd ..
+          python3 - <<'PY'
+          import json, os
+          D = f"pr-{os.environ['PR']}/{os.environ['SHA'][:7]}"
+          base = f"https://raw.githubusercontent.com/{os.environ['REPO']}/ci-images/{D}/"
+          names = ["화면 (예시 도면 결과)", "예시 도면 B1 (명령줄)", "기준 sample", "기준 user", "기준 big", "기준 auto"]
+          ok = os.environ["RESULT"] == "success"
+          s = json.load(open("res/summary.json", encoding="utf-8")) if os.path.exists("res/summary.json") else {}
+          b = ["<!-- parkplan-ci -->", f"## {'✅ 시험 통과' if ok else '❌ 시험 실패'} (Linux·Windows) — `{os.environ['SHA'][:7]}`", "",
+               "| 항목 | 결과 |", "|---|---|"] + [f"| {k} | {v} |" for k, v in s.items()]
+          b += ["", f"[Actions 기록·산출물]({os.environ['RUN_URL']})", "", "<details open><summary>확인 그림</summary>", ""]
+          for i, n in enumerate(names):
+              if os.path.exists(f"img/{D}/{i:02d}.png"):
+                  b += [f"**{n}**", "", f"<img src='{base}{i:02d}.png' width='720'>", ""]
+          b += ["</details>"]
+          open("body.md", "w", encoding="utf-8").write("\n".join(b))
+          PY
+          ID=$(gh api "repos/$REPO/issues/$PR/comments" --paginate -q '.[] | select(.body | startswith("<!-- parkplan-ci -->")) | .id' | head -1)
+          if [ -n "$ID" ]; then gh api -X PATCH "repos/$REPO/issues/comments/$ID" -F body=@body.md >/dev/null
+          else gh api "repos/$REPO/issues/$PR/comments" -F body=@body.md >/dev/null; fi
