@@ -45,6 +45,7 @@ DXF_LAYERS = {   # 이름: (ACI, 선종류)
     "A-PARK-B": (9, "Continuous"),
     "A-PARK-NO": (8, "Continuous"),
     "A-RAMP": (4, "Continuous"),
+    "A-STOR": (8, "Continuous"),
     "A-TXT": (7, "Continuous"),
     "A-TXT1": (7, "Continuous"),
     "A-TXT3": (3, "Continuous"),
@@ -141,6 +142,7 @@ def world(res, floor=0):
         arrows.append((q.x, q.y, *_rot((dx, dy), th)))
     return dict(
         site=w(fr.site), usable=w(fr.usable), cores=[w(c) for c in fr.cores],
+        band=w(fr.band) if getattr(fr, "band", None) is not None else None,
         ramp=w(ramp["poly"]) if ramp is not None else None,
         ramp_mouth=(w(shapely.Point(ramp["mouth_mid"])) if ramp is not None and ramp.get("mouth_mid") else None),
         drive=w(res["drive"]), columns=[w(c) for c in res["columns"]], stalls=stalls,
@@ -173,6 +175,7 @@ def to_json(res, scale=1.0):
             site=[r(p) for p in _polys(W["site"])],
             usable=[r(p) for p in _polys(W["usable"])],
             cores=[r(p) for c in W["cores"] for p in _polys(c)],
+            band=[r(p) for p in _polys(W["band"])] if W["band"] is not None else [],
             ramp=[r(p) for p in _polys(W["ramp"])] if W["ramp"] is not None else [],
             drive=[dict(o=r(p), h=[[[round(x * scale, 3), round(y * scale, 3)] for x, y in h.coords] for h in p.interiors])
                    for p in _polys(W["drive"])],
@@ -228,6 +231,8 @@ def plan_png(res, path, floor=0, title=None, dpi=170):
     add(W["site"], fc="none", ec="#111", lw=1.4)
     add(W["usable"], fc="white", ec="#555", lw=0.9)
     add(W["drive"], fc="#f2f4f8", ec="none")
+    if W["band"] is not None:
+        add(W["band"], fc="#f4f4f4", ec="#888", lw=0.6, hatch="....")
     for c in W["cores"]:
         add(c, fc="#e3e3e3", ec="#444", lw=0.8, hatch="////")
     if W["ramp"] is not None:
@@ -322,6 +327,8 @@ def plan_png(res, path, floor=0, title=None, dpi=170):
         y -= (0.32 if big else 0.22) / fig_h
     leg = [("일반", dict(fc="white", ec="#111")), ("확장", dict(fc="white", ec=BLUE)), ("전기차", dict(fc="#eef3fd", ec=BLUE)),
            ("경형", dict(fc="white", ec="#5a7fd0")), ("장애인", dict(fc=BLUE, ec=BLUE_D)), ("기둥", dict(fc="#111", ec="#111"))]
+    if W["band"] is not None:
+        leg.append((res["rules"].perimeter_use, dict(fc="#f4f4f4", ec="#888", hatch="....")))
     x = 0.015
     for name, sty in leg:
         fig.patches.append(MPoly([[x, 0.02], [x + 0.016, 0.02], [x + 0.016, 0.04], [x, 0.04]], closed=True,
@@ -513,6 +520,14 @@ def write_dxf(res, path, unit_scale=1.0, insunits=6):
         dx = fi * gap
         pl(W["site"], "A-SITE", dx, width=0.3)
         pl(W["usable"], "A-WAL", dx)
+        if W["band"] is not None:
+            for p in _polys(W["band"]):
+                pl(p, "A-STOR", dx)
+                h = msp.add_hatch(color=9, dxfattribs={"layer": "A-STOR"})
+                h.set_pattern_fill("DOTS", scale=0.1 * S)
+                h.paths.add_polyline_path([P(x, y, dx) for x, y in p.exterior.coords[:-1]], is_closed=True)
+                for hole in p.interiors:
+                    h.paths.add_polyline_path([P(x, y, dx) for x, y in hole.coords[:-1]], is_closed=True)
         for c in W["cores"]:
             pl(c, "A-WAL", dx)
             for p in _polys(c):
@@ -742,6 +757,9 @@ def write_3dm(res, path, unit_scale=1.0, unit="m", cars=True):
         for c in W["cores"]:
             for p in _polys(c):
                 add_mesh(_mesh_prism(rh, p, z, z + fh), sub["P-코어"], "코어")
+        if W["band"] is not None:
+            for p in _polys(W["band"]):
+                add_mesh(_mesh_polygon(rh, p, z + 0.01), sub["P-코어"], res["rules"].perimeter_use)
         for c in W["columns"]:
             for p in _polys(c):
                 add_mesh(_mesh_prism(rh, p, z, z + fh - 0.25), sub["P-기둥"], "기둥")

@@ -120,6 +120,10 @@ class Frame:
         usable = site.buffer(-rules.wall_offset, join_style=2) if rules.wall_offset > 0 else site
         holes = [g.buffer(rules.core_clear, join_style=2) if rules.core_clear > 0 else g for g in cores]
         holes += list(obstacles)
+        band = perimeter_band(usable, ramps, rules)
+        if band is not None:
+            holes.append(band)
+        self.band = rot(band) if band is not None else None
         self.cores = [rot(g) for g in cores]
         self.ramps = [rot(g) for g in ramps]          # 그린 경사로
         self.usable = rot(usable)                     # 코어 빼기 전
@@ -130,6 +134,27 @@ class Frame:
 
     def to_world(self, g):
         return affinity.rotate(g, self.theta, origin=self.origin)
+
+
+def perimeter_band(usable, ramps, rules):
+    """외벽 둘레 띠(창고·기계실): 경계 안쪽 깊이 d. 그린 경사로와 그 앞(연결 차로 너비만큼)은 비움."""
+    d = float(getattr(rules, "perimeter_band", 0) or 0)
+    if d <= 0:
+        return None
+    band = usable.difference(usable.buffer(-d, join_style=2))
+    if ramps:
+        band = band.difference(unary_union([g.buffer(rules.link_aisle, join_style=2) for g in ramps]))
+    # 고리 모양(구멍 있는 도형)은 그림·화면에서 다루기 어려워, 가운데를 지나는 세로선으로 끊어 둘로 나눔
+    parts = []
+    for p in getattr(band, "geoms", [band]):
+        if p.interiors:
+            c = p.centroid
+            b = p.bounds
+            p = p.difference(box(c.x - 0.005, b[1] - 1, c.x + 0.005, b[3] + 1))
+        parts += list(getattr(p, "geoms", [p]))
+    # 너무 짧은 토막(깊이의 2배 미만 길이)은 쓸모없어 버림
+    parts = [p for p in parts if p.area >= 2 * d * d and not p.interiors]
+    return unary_union(parts) if parts else None
 
 
 def grid_angles(site, n):
@@ -1576,6 +1601,9 @@ def realize(lay: Layout, floors, full: Rules = None):
     if fr.ramps and lay.ramp is not None and lay.ramp.get("drawn"):
         from . import oneway
         checks += oneway.ramp_checks(fr.ramps, tot_legal, full)
+    if fr.band is not None:
+        checks.append(dict(item=f"외벽 둘레 {full.perimeter_use} 띠", need=f"깊이 {full.perimeter_band:.1f}m (경사로 앞은 비움)",
+                           have=f"{fr.band.area:,.0f}㎡/층", ok=True))
     csum = circ.summary(cm, full.circ_weight)
     score = tot_legal - full.circ_weight * cm.get("penalty", 0.0) * floors
     # 그린 경사로 모양(너비·반경)은 배치로 바꿀 수 없어 순위에는 넣지 않고 표시만
@@ -1589,7 +1617,8 @@ def realize(lay: Layout, floors, full: Rules = None):
                    for i, n in enumerate(per_floor)],
         per_floor_legal=legal[-1] if floors > 1 else legal[0],
         total_legal=tot_legal, total_physical=tot_phys, total_ev=ev_tot,
-        floor_area=round(fr.usable.area, 1), park_area=round(park_area, 1),
+        floor_area=round(fr.usable.area, 1), park_area=round(park_area - (fr.band.area if fr.band is not None else 0), 1),
+        band_area=round(fr.band.area, 1) if fr.band is not None else 0,
         area_per_stall=round(fr.usable.area / max(legal[0], 1), 2),
         columns=len(cols), links=len(lay.S), spans=grid["spans"],
         phase=dict(no_columns=ph["free"], with_columns=ph["after"], column_loss=ph["free"] - ph["after"], edge_fill=ph.get("fill", 0),

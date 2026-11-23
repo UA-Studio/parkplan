@@ -70,6 +70,8 @@ class Rules:
 
     # 대지·층
     wall_offset: float = 0.0      # 입력 경계선에서 안쪽으로 띄울 거리(외벽 두께 등)
+    perimeter_band: float = 0.0   # 외벽 둘레 띠(창고·기계실 등) 깊이 m. 0 = 없음. 경사로 앞은 비움
+    perimeter_use: str = "창고·기계실"  # 띠 이름(도면·요약 표기)
     core_clear: float = 0.0       # 코어 둘레 띄움
     floors: int = 2
     floor_h: float = 3.6          # 층고(경사로 길이 계산)

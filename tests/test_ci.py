@@ -108,3 +108,27 @@ def test_fixed_grid():
     assert cmp_ and "fixed_grid" in st["phase"]
     export.plan_png(res[0], os.path.join(OUT, "fixed_grid_8.5.png"), 0)
     _record("정형 기둥 격자 8.5m", f"{st['total_legal']}대 · {cmp_[0]['have']}")
+
+
+def test_perimeter_band():
+    """외벽 둘레 띠: 띠 안에는 구획이 없고, 경사로 앞은 비우며, 도면에 A-STOR 레이어가 생김."""
+    from bench import CASES
+    from parking_ai.engine import search
+    from parking_ai.rules import Rules
+    from parking_ai import export
+    import ezdxf
+    from shapely.ops import unary_union
+    site, cores, ramps, kw = CASES["sample"]
+    res = search(site, cores, ramps=ramps, rules=Rules(effort="fast", floors=1, circ_weight=0, perimeter_band=2.5, **kw), log=lambda m: None)
+    R = res[0]
+    W = export.world(R, 0)
+    assert W["band"] is not None and R["stats"]["band_area"] > 0
+    band = W["band"].buffer(-0.01)
+    assert not any(s["poly"].intersects(band) for s in W["stalls"])
+    assert not band.intersects(unary_union(ramps))
+    p = os.path.join(OUT, "band_2.5.dxf")
+    export.write_dxf(R, p)
+    assert len(ezdxf.readfile(p).modelspace().query('*[layer=="A-STOR"]')) > 0
+    export.plan_png(R, os.path.join(OUT, "band_2.5.png"), 0)
+    export.to_json(R)
+    _record("외벽 둘레 띠 2.5m", f"{R['stats']['total_legal']}대 · 띠 {R['stats']['band_area']:.0f}㎡/층")

@@ -91,7 +91,7 @@ jobs:
             mkdir img && cd img && git init -q -b ci-images && git remote add origin "https://x-access-token:$GH_TOKEN@github.com/$REPO" && cd ..; }
           mkdir -p "img/$D"
           i=0
-          for f in res/화면_2_결과.png res/cli_예시/B1_평면.png res/bench_sample.png res/bench_user.png res/bench_big.png res/bench_auto.png; do
+          for f in res/화면_2_결과.png res/cli_예시/B1_평면.png res/bench_sample.png res/bench_user.png res/bench_big.png res/bench_auto.png res/fixed_grid_8.5.png res/band_2.5.png; do
             [ -f "$f" ] && cp "$f" "img/$D/$(printf %02d $i).png"; i=$((i+1))
           done
           cd img && git config user.name "github-actions" && git config user.email "actions@github.com"
@@ -101,7 +101,7 @@ jobs:
           import json, os
           D = f"pr-{os.environ['PR']}/{os.environ['SHA'][:7]}"
           base = f"https://raw.githubusercontent.com/{os.environ['REPO']}/ci-images/{D}/"
-          names = ["화면 (예시 도면 결과)", "예시 도면 B1 (명령줄)", "기준 sample", "기준 user", "기준 big", "기준 auto"]
+          names = ["화면 (예시 도면 결과)", "예시 도면 B1 (명령줄)", "기준 sample", "기준 user", "기준 big", "기준 auto", "정형 기둥 격자 8.5m", "외벽 둘레 띠 2.5m"]
           ok = os.environ["RESULT"] == "success"
           s = json.load(open("res/summary.json", encoding="utf-8")) if os.path.exists("res/summary.json") else {}
           b = ["<!-- parkplan-ci -->", f"## {'✅ 시험 통과' if ok else '❌ 시험 실패'} (Linux·Windows) — `{os.environ['SHA'][:7]}`", "",
