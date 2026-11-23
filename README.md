@@ -2,7 +2,7 @@
 
 [![자동 시험](https://github.com/UA-Studio/parkplan/actions/workflows/ci.yml/badge.svg)](https://github.com/UA-Studio/parkplan/actions/workflows/ci.yml)
 
-**v1.7 (2026-11-23)**
+**v1.8 (2026-11-23)**
 
 지하 외벽선, 코어, 경사로를 그린 도면(DXF/3dm)을 넣으면 **주차장법을 지키면서 법정 주차대수가 가장 많은 지하주차장 배치**를 찾아 줍니다. 결과는 캐드(DXF), 라이노(3dm), 평면 그림, 층별 대수표로 받습니다.
 
