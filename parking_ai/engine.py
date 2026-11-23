@@ -120,6 +120,10 @@ class Frame:
         usable = site.buffer(-rules.wall_offset, join_style=2) if rules.wall_offset > 0 else site
         holes = [g.buffer(rules.core_clear, join_style=2) if rules.core_clear > 0 else g for g in cores]
         holes += list(obstacles)
+        band = perimeter_band(usable, ramps, rules)
+        if band is not None:
+            holes.append(band)
+        self.band = rot(band) if band is not None else None
         self.cores = [rot(g) for g in cores]
         self.ramps = [rot(g) for g in ramps]          # 그린 경사로
         self.usable = rot(usable)                     # 코어 빼기 전
@@ -130,6 +134,27 @@ class Frame:
 
     def to_world(self, g):
         return affinity.rotate(g, self.theta, origin=self.origin)
+
+
+def perimeter_band(usable, ramps, rules):
+    """외벽 둘레 띠(창고·기계실): 경계 안쪽 깊이 d. 그린 경사로와 그 앞(연결 차로 너비만큼)은 비움."""
+    d = float(getattr(rules, "perimeter_band", 0) or 0)
+    if d <= 0:
+        return None
+    band = usable.difference(usable.buffer(-d, join_style=2))
+    if ramps:
+        band = band.difference(unary_union([g.buffer(rules.link_aisle, join_style=2) for g in ramps]))
+    # 고리 모양(구멍 있는 도형)은 그림·화면에서 다루기 어려워, 가운데를 지나는 세로선으로 끊어 둘로 나눔
+    parts = []
+    for p in getattr(band, "geoms", [band]):
+        if p.interiors:
+            c = p.centroid
+            b = p.bounds
+            p = p.difference(box(c.x - 0.005, b[1] - 1, c.x + 0.005, b[3] + 1))
+        parts += list(getattr(p, "geoms", [p]))
+    # 너무 짧은 토막(깊이의 2배 미만 길이)은 쓸모없어 버림
+    parts = [p for p in parts if p.area >= 2 * d * d and not p.interiors]
+    return unary_union(parts) if parts else None
 
 
 def grid_angles(site, n):
@@ -930,7 +955,7 @@ def _job_est(ctx, item):
         return (key[0], lay.count), item
     rows_U = columns.usable_rows(lay, lay.S, lay.roots, lay.main)
     conn_x = [(pc["xl"], pc["xr"]) for k in lay.S for pc in lay.conn[k]]
-    lines, free, _ = columns.solve(lay, rows_U, full, conn_x)
+    lines, free, _, _ = columns.choose(lay, rows_U, full, conn_x)
     placed, _ = columns.pack(rows_U, full, Y, lines)
     n_ext = sum(1 for t in placed if t[3] == "E")
     ok = ext_ok(full, len(placed) + lay.wall_est, n_ext, max(1, rules.floors))
@@ -1206,8 +1231,9 @@ def _place_90(lay, full, drive_u):
     rows = Y.rows
     rows_U = columns.usable_rows(lay, lay.S, lay.roots, lay.main)
     conn_x = [(pc["xl"], pc["xr"]) for k in lay.S for pc in lay.conn[k]]
-    lines, free, _ = columns.solve(lay, rows_U, full, conn_x)
+    lines, free, dp_lines, n_bad = columns.choose(lay, rows_U, full, conn_x)
     placed, rest = columns.pack(rows_U, full, Y, lines)
+    dp_n = len(columns.pack(rows_U, full, Y, dp_lines)[0]) if dp_lines is not None else None
     stalls = []
     for ridx, seg, x, kind, W, lo, hi in placed:
         r = rows[ridx]
@@ -1272,7 +1298,10 @@ def _place_90(lay, full, drive_u):
         col_ys = sorted(set(y for y, o in zip(ys, ok) if o))
     spans = [round(b - a, 2) for a, b in zip(lines, lines[1:])]
     grid = dict(xs=[p + c / 2 for p in lines], ys=list(col_ys), spans=spans)
-    return stalls, cols, grid, dict(free=free, after=after_cols)
+    ph = dict(free=free, after=after_cols)
+    if dp_n is not None:  # 정형 격자: 같은 단계(경형 채우기 전) 대수끼리 비교
+        ph.update(fixed=len(placed), dp=dp_n, on_aisle=n_bad)
+    return stalls, cols, grid, ph
 
 
 class _CompactRules:
@@ -1536,9 +1565,19 @@ def realize(lay: Layout, floors, full: Rules = None):
                        have=f"경형 {ctot}대 중 {ctot - (tot_phys - tot_legal)}대 인정", ok=True))
     checks.append(dict(item="차로 너비", need=f"{ang}° 주차 {Y.aisle_w:.1f}m 이상 · 연결 차로 {full.link_aisle:.1f}m 이상",
                        have=f"{Y.aisle_w:.1f}m / {min(full.link_aisle, lay.kc * lay.P - lay.c):.1f}m 이상", ok=True))
-    if grid["spans"]:
+    if grid["spans"] and full.fixed_span > 0:
+        checks.append(dict(item="기둥 간격", need=f"정형 격자 {full.fixed_span:.2f}m 고정 (기둥 {full.column_w * 1000:.0f}×{full.column_d * 1000:.0f})",
+                           have=f"{full.fixed_span:.2f}m 간격 {len(grid['xs'])}줄", ok=True))
+    elif grid["spans"]:
         checks.append(dict(item="기둥 간격", need=f"{full.span_min:.1f}~{full.span_max:.1f}m (기둥 {full.column_w * 1000:.0f}×{full.column_d * 1000:.0f})",
                            have=f"{min(grid['spans']):.1f}~{max(grid['spans']):.1f}m", ok=max(grid["spans"]) <= full.span_max + 1e-6))
+    if "dp" in ph:
+        d_ = ph["fixed"] - ph["dp"]
+        checks.append(dict(item="정형 격자와 자유 간격 비교", need=f"{full.fixed_span:.2f}m 고정 vs {full.span_min:.0f}~{full.span_max:.0f}m 자유 (한 층, 경형 채우기 전)",
+                           have=f"정형 {ph['fixed']}면 / 자유 {ph['dp']}면 ({d_:+d})", ok=True))
+        if ph.get("on_aisle"):
+            checks.append(dict(item="정형 격자: 연결 차로 위 기둥", need="격자선이 연결 차로를 지나면 그 자리 기둥을 세우지 않음 (간격이 2배 — 보·전이 구조 검토)",
+                               have=f"{ph['on_aisle']}곳 (기둥 줄 기준)", ok=False, struct=True))
     if lay.ramp is not None:
         if lay.ramp.get("drawn"):
             con = lay.count >= 0 and (lay.base_links or any(pc["ramp"] for k in lay.S for pc in lay.conn[k]))
@@ -1562,11 +1601,14 @@ def realize(lay: Layout, floors, full: Rules = None):
     if fr.ramps and lay.ramp is not None and lay.ramp.get("drawn"):
         from . import oneway
         checks += oneway.ramp_checks(fr.ramps, tot_legal, full)
+    if fr.band is not None:
+        checks.append(dict(item=f"외벽 둘레 {full.perimeter_use} 띠", need=f"깊이 {full.perimeter_band:.1f}m (경사로 앞은 비움)",
+                           have=f"{fr.band.area:,.0f}㎡/층", ok=True))
     csum = circ.summary(cm, full.circ_weight)
     score = tot_legal - full.circ_weight * cm.get("penalty", 0.0) * floors
     # 그린 경사로 모양(너비·반경)은 배치로 바꿀 수 없어 순위에는 넣지 않고 표시만
-    rank = (1 if all(ch["ok"] for ch in checks if ch["item"] != "전기차 전용구획" and not ch.get("ramp")) else 0,
-            round(score, 3), tot_legal, -len(cols))
+    checks += target_checks(tot_legal, legal[-1], floors, full)
+    rank = rank_of(checks, score, tot_legal, len(cols), full)
     stats = dict(
         grid_angle=round(fr.theta, 2), park_angle=ang, bay=(round(sum(grid["spans"]) / len(grid["spans"]), 2) if grid["spans"] else 0),
         ext_mask=Y.mask, aisle_w=Y.aisle_w, floors=floors,
@@ -1575,16 +1617,52 @@ def realize(lay: Layout, floors, full: Rules = None):
                    for i, n in enumerate(per_floor)],
         per_floor_legal=legal[-1] if floors > 1 else legal[0],
         total_legal=tot_legal, total_physical=tot_phys, total_ev=ev_tot,
-        floor_area=round(fr.usable.area, 1), park_area=round(park_area, 1),
+        floor_area=round(fr.usable.area, 1), park_area=round(park_area - (fr.band.area if fr.band is not None else 0), 1),
+        band_area=round(fr.band.area, 1) if fr.band is not None else 0,
         area_per_stall=round(fr.usable.area / max(legal[0], 1), 2),
         columns=len(cols), links=len(lay.S), spans=grid["spans"],
-        phase=dict(no_columns=ph["free"], with_columns=ph["after"], column_loss=ph["free"] - ph["after"], edge_fill=ph.get("fill", 0)),
+        phase=dict(no_columns=ph["free"], with_columns=ph["after"], column_loss=ph["free"] - ph["after"], edge_fill=ph.get("fill", 0),
+                   **({"fixed_grid": ph["fixed"], "free_grid": ph["dp"]} if "dp" in ph else {})),
         circulation=csum, score=round(score, 1),
         checks=checks,
         need_floors=(math.ceil(full.target_total / max(legal[-1], 1)) if full.target_total else None),
     )
     return dict(frame=fr, layout=lay, rules=full, stalls_b1=acc_stalls, stalls=stalls, columns=cols,
                 drive=drive_u, ramp=lay.ramp, stats=stats, rank=rank, grid=grid, flows=flows, dead=dead_marks, arrows=arrows)
+
+
+SURPLUS_W = 0.25  # 목표를 넘긴 대수는 1대를 0.25로 쳐서, 목표를 채운 안끼리는 동선이 좋은 쪽이 앞서게
+
+
+def target_checks(tot_legal, per_floor_legal, floors, rules):
+    """법정 필요대수(목표) 확인 줄. 목표를 넣지 않았으면 없음."""
+    t = int(rules.target_total or 0)
+    if t <= 0:
+        return []
+    d = tot_legal - t
+    if d >= 0:
+        have = f"{tot_legal}대 — 충족 (+{d})"
+    else:
+        need = math.ceil(t / max(per_floor_legal, 1))
+        have = f"{tot_legal}대 — {-d}대 부족" + (f" · 이 평면이면 {need}개 층 필요" if need > floors else "")
+    return [dict(item="법정 필요대수", need=f"{t}대 이상 (목표)", have=have, ok=d >= 0, target=True)]
+
+
+def rank_of(checks, score, tot_legal, n_cols, rules):
+    """순위 키. (법규 충족, 목표 충족, 점수, 대수, −기둥 수)
+
+    목표가 없으면: 점수 = 법정 대수 − 동선 감점 (예전과 같음).
+    목표가 있으면: 목표를 채운 안이 먼저 오고, 채운 안끼리는 넘긴 대수를 1/4만 쳐서
+    동선 감점이 작은 안이 앞섭니다. 못 채운 안끼리는 예전 점수(대수 위주)로 비교합니다."""
+    lawful = 1 if all(ch["ok"] for ch in checks
+                      if ch["item"] != "전기차 전용구획" and not ch.get("ramp") and not ch.get("target") and not ch.get("struct")) else 0
+    t = int(rules.target_total or 0)
+    if t <= 0:
+        return (lawful, 1, round(score, 3), tot_legal, -n_cols)
+    if tot_legal >= t:
+        penalty = tot_legal - score
+        return (lawful, 1, round(t + SURPLUS_W * (tot_legal - t) - penalty, 3), tot_legal, -n_cols)
+    return (lawful, 0, round(score, 3), tot_legal, -n_cols)
 
 
 def legal_count(n, rules):

@@ -314,8 +314,12 @@ def merge(site, cores, ramps, obstacles, full, parts, gate, log=print):
     spans = sorted(set(s for R in parts for s in R["stats"]["spans"]))
     allspans = [s for R in parts for s in R["stats"]["spans"]]
     ph = [R["stats"]["phase"] for R in parts]
-    rank = (1 if all(ch["ok"] for ch in checks if ch["item"] != "전기차 전용구획" and not ch.get("ramp")) else 0, round(score, 3), tot_legal,
-            -len(cols))
+    from .engine import rank_of, target_checks
+    checks = checks + target_checks(tot_legal, legal[-1], floors, full)
+    if frA.band is not None:
+        checks.append(dict(item=f"외벽 둘레 {full.perimeter_use} 띠", need=f"깊이 {full.perimeter_band:.1f}m (경사로 앞은 비움)",
+                           have=f"{frA.band.area:,.0f}㎡/층", ok=True))
+    rank = rank_of(checks, score, tot_legal, len(cols), full)
     words = [_dir_word(R) for R in parts]
     zone_text = f"A {words[0]} + B {words[1]}"
     stats = dict(
@@ -327,7 +331,9 @@ def merge(site, cores, ramps, obstacles, full, parts, gate, log=print):
                    for i, n in enumerate(per_floor)],
         per_floor_legal=legal[-1] if floors > 1 else legal[0],
         total_legal=tot_legal, total_physical=tot_phys, total_ev=ev_tot,
-        floor_area=round(frA.usable.area, 1), park_area=round(frA.usable.area - sum(c.area for c in frA.cores), 1),
+        floor_area=round(frA.usable.area, 1),
+        park_area=round(frA.usable.area - sum(c.area for c in frA.cores) - (frA.band.area if frA.band is not None else 0), 1),
+        band_area=round(frA.band.area, 1) if frA.band is not None else 0,
         area_per_stall=round(frA.usable.area / max(legal[0], 1), 2),
         columns=len(cols), links=sum(R["stats"]["links"] for R in parts), spans=spans,
         phase=dict(no_columns=sum(p["no_columns"] for p in ph), with_columns=sum(p["with_columns"] for p in ph),
@@ -368,13 +374,21 @@ def search_zones(site, cores, ramps, obstacles, rules, base_total=None, log=prin
     th = _theta_of(u)
     small = site.area <= 20000
     gas = (round(th, 3), round((th + 90) % 180, 3))
-    r_fast = dataclasses.replace(rules, effort="fast", grid_angles=gas, wall_rows=(), wall_search=False)
+    # 외벽 둘레 띠는 대지 전체 기준으로 한 번만 만들어 장애물로 넘김(구역 경계선 쪽에 띠가 생기지 않게).
+    # 목표 대수도 구역 하나가 아니라 합친 안에서 따짐.
+    zone_obs = list(obstacles)
+    usable = site.buffer(-rules.wall_offset, join_style=2) if rules.wall_offset > 0 else site
+    bg = engine.perimeter_band(usable, ramps, rules)
+    if bg is not None:
+        zone_obs.append(bg)
+    r_fast = dataclasses.replace(rules, effort="fast", grid_angles=gas, wall_rows=(), wall_search=False,
+                                 perimeter_band=0.0, target_total=0)
 
     def run_cut(cut, r_z):
         za, zb, gate, t = cut
         parts = []
         for z in (za, zb):
-            zc, zr, zo = _zone_inputs(z, cores, ramps, obstacles)
+            zc, zr, zo = _zone_inputs(z, cores, ramps, zone_obs)
             try:
                 res = engine.search(z, zc, zr, zo, r_z, log=lambda m: None, stop=stop, executor=executor, gates=[gate])
             except Exception as e:
@@ -413,7 +427,7 @@ def search_zones(site, cores, ramps, obstacles, rules, base_total=None, log=prin
             best, best_cut = m, cut
     if best_cut is not None and small and rules.effort != "fast" and not (stop and stop()):
         r_full = dataclasses.replace(rules, effort="normal" if rules.effort != "thorough" else "normal",
-                                     grid_angles=gas, wall_rows=(), wall_search=True)
+                                     grid_angles=gas, wall_rows=(), wall_search=True, perimeter_band=0.0, target_total=0)
         m = run_cut(best_cut, r_full)
         if m is not None and m["rank"] > best["rank"]:
             best = m
