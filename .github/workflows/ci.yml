@@ -2,7 +2,7 @@ name: 자동 시험
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
