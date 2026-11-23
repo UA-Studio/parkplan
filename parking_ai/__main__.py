@@ -1,6 +1,6 @@
 """python -m parking_ai            → 화면 열기
 python -m parking_ai 도면.dxf      → 화면 없이 바로 찾고 결과 폴더에 저장
-  옵션: --floors 3 --effort thorough --ramp auto --angles 90,60 --circ 1 --target 180 --out 폴더
+  옵션: --floors 3 --effort thorough --ramp auto --angles 90,60 --circ 1 --target 180 --grid 8.5 --out 폴더
 """
 import argparse
 import os
@@ -17,6 +17,7 @@ def main():
     ap.add_argument("--angles", help="주차 각도 예: 90,60")
     ap.add_argument("--circ", type=float, help="동선 가중치 0(대수만)~2(동선 중시), 기본 1")
     ap.add_argument("--target", type=int, help="법정 필요대수(목표). 채운 안 가운데 동선이 좋은 안을 먼저 고름")
+    ap.add_argument("--grid", type=float, help="정형 기둥 격자 간격(m, 예 8.5). 넣지 않으면 5~9m 자유 간격")
     ap.add_argument("--out")
     ap.add_argument("--port", type=int, default=8766)
     ap.add_argument("--no-browser", action="store_true")
@@ -38,6 +39,7 @@ def main():
     if a.ramp: r.ramp_mode = a.ramp
     if a.circ is not None: r.circ_weight = a.circ
     if a.target: r.target_total = a.target
+    if a.grid: r.fixed_span = a.grid
     if a.angles: r.park_angles = tuple(int(x) for x in a.angles.split(","))
     if r.ramp_mode == "drawn" and not ramps:
         r.ramp_mode = "none"

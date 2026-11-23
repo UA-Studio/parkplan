@@ -56,6 +56,7 @@ class Rules:
     span_min: float = 5.0         # 기둥 간격(중심 아님, 기둥 왼쪽 면 사이) 최소
     span_max: float = 9.0         # 기둥 간격 최대(구조 검토 값으로 바꾸기)
     span_step: float = 0.1        # 기둥 위치를 찾는 간격
+    fixed_span: float = 0.0       # 정형 격자: 기둥 줄을 이 중심 간격으로 고정(예 8.1, 8.5). 0 = 자유 간격(5~9m DP)
     stalls_per_bay: tuple = (3,)  # 정형 기둥 간격(대수 × 확장형 너비 + 기둥) — 같은 대수면 이 간격에 가깝게
     bay_pitches: tuple = ()       # (예전 방식 호환용, 쓰지 않음)
 
