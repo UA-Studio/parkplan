@@ -145,6 +145,48 @@ def solve(lay, rows_U, rules, conn_x):
     return lines, free, None
 
 
+def _n_with(rows_U, Ws, c, lines):
+    """기둥 줄 lines 를 세웠을 때 일반·확장 구획 수(pack 과 같은 셈, 빠르게)."""
+    bounds = np.array([-1e9] + list(lines) + [1e9])
+    a = bounds[:-1] + np.r_[0.0, np.full(len(lines), c)]
+    b = bounds[1:]
+    return int(sum(_count(U, W, a, b).sum() for U, W in zip(rows_U, Ws) if U))
+
+
+def solve_fixed(lay, rows_U, rules, conn_x, pitch):
+    """정형 격자: 기둥 줄을 같은 간격(pitch, 중심 간격)으로 고정하고 시작 위치만 찾음.
+
+    연결 차로 위에 떨어지는 기둥 줄이 적은 시작 위치를 먼저, 그다음 구획이 많은 위치를 고름.
+    (그래도 차로 위에 떨어지는 기둥은 배치 단계에서 세우지 않음.)"""
+    c = rules.column_w
+    Ws = [(rules.ext_w if r["ext"] else rules.stall_w) for r in lay.Y.rows]
+    allU = [iv for U in rows_U for iv in U]
+    if not allU or c <= 0 or pitch <= c:
+        return [], 0
+    X0 = min(a for a, b in allU)
+    X1 = max(b for a, b in allU)
+    best, best_lines = None, []
+    for o in np.arange(0.0, pitch - 1e-9, rules.span_step):
+        lines = [float(x) for x in np.arange(X0 - pitch + o, X1, pitch) if x + c > X0 + TOL and x < X1 - TOL]
+        n_bad = sum(1 for p in lines for xl, xr in conn_x if p < xr - TOL and p + c > xl + TOL)
+        key = (-n_bad, _n_with(rows_U, Ws, c, lines), -abs(o - pitch / 2))
+        if best is None or key > best:
+            best, best_lines = key, lines
+    return best_lines, -best[0]
+
+
+def choose(lay, rows_U, rules, conn_x):
+    """기둥 줄 고르기. (lines, 기둥 없을 때 대수, 자유 간격 DP 로 고른 줄, 연결 차로 위에 떨어진 기둥 줄 수)
+
+    정형 격자가 아니면 자유 간격 DP 줄과 None, 0."""
+    lines, free, _ = solve(lay, rows_U, rules, conn_x)
+    pitch = float(getattr(rules, "fixed_span", 0) or 0)
+    if pitch <= 0:
+        return lines, free, None, 0
+    fl, n_bad = solve_fixed(lay, rows_U, rules, conn_x, pitch)
+    return fl, free, lines, n_bad
+
+
 def pack(rows_U, rules, Y, lines):
     """기둥 줄 사이(와 벽 사이)에 구획을 왼쪽부터 채움. [(ridx, seg, x, kind, W)] 와 남는 조각."""
     c = rules.column_w

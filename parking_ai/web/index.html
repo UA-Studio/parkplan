@@ -184,6 +184,8 @@ main{display:flex;flex-direction:column;min-width:0;min-height:0}
         <div class="sub">구조 · 대지</div>
         <div class="row"><div><label class="f">기둥 (줄 방향 × 깊이, m)</label><div class="row" style="margin:0"><input type="number" step="0.05" id="column_w" value="0.7"><input type="number" step="0.05" id="column_d" value="0.5"></div></div>
           <div><label class="f">기둥 간격 최소~최대 (m)</label><div class="row" style="margin:0"><input type="number" step="0.1" id="span_min" value="5.0"><input type="number" step="0.1" id="span_max" value="9.0"></div></div></div>
+        <div class="row"><div><label class="f">정형 격자 간격 (m, 선택)</label><input type="number" step="0.05" id="fixed_span" placeholder="예: 8.5 · 비우면 자유 간격"></div>
+          <div class="muted" style="align-self:end;font-size:12px;line-height:1.4">기둥 줄을 같은 간격으로 고정(프리캐스트 등). 결과에 자유 간격과 대수 차이를 보여 줍니다</div></div>
         <div class="sub">동선 · 전기차</div>
         <div class="row"><div><label class="f">막다른 차로 허용 길이 (m)</label><input type="number" step="0.5" id="dead_end_ok" value="6"></div>
           <div><label class="f">전기차 전용구획 (%)</label><input type="number" step="0.5" id="ev_ratio" value="5"></div></div>
@@ -392,7 +394,7 @@ function rules(){
     acc_w:n("acc_w"),acc_l:n("acc_l"),aisle_90:n("aisle_90"),aisle_60_one:n("aisle_60_one"),aisle_60_two:n("aisle_60_two"),aisle_45_one:n("aisle_45_one"),aisle_45_two:n("aisle_45_two"),
     two_entrances:$("#two_entrances").checked,link_aisle:n("link_aisle"),ext_ratio:n("ext_ratio")/100,ext_threshold:n("ext_threshold"),acc_ratio:n("acc_ratio")/100,
     compact_legal_ratio:n("compact_legal_ratio")/100,compact_fill:$("#compact_fill").checked,column_w:n("column_w"),
-    wall_offset:n("wall_offset"),core_clear:n("core_clear"),ramp_slope:n("ramp_slope")/100,ramp_extra:n("ramp_extra"),target_total:n("target_total")||0};
+    wall_offset:n("wall_offset"),core_clear:n("core_clear"),ramp_slope:n("ramp_slope")/100,ramp_extra:n("ramp_extra"),target_total:n("target_total")||0,fixed_span:n("fixed_span")||0};
 }
 $("#go").onclick=()=>{
   if(!SRC)return;showErr("");

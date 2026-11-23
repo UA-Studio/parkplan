@@ -92,3 +92,19 @@ def test_target_total():
     assert not t2["ok"] and "부족" in t2["have"] and "층 필요" in t2["have"]
     assert res2[0]["rank"][0] in (0, 1)  # 목표 미달은 법규 충족 여부(첫 키)에 들어가지 않음
     _record("법정 필요대수 목표", f"100대 → 안1 {res[0]['stats']['total_legal']}대 충족 · 500대 → {t2['have']}")
+
+
+def test_fixed_grid():
+    """정형 기둥 격자: 간격이 모두 같고, 자유 간격과의 비교 줄이 생김."""
+    from bench import CASES
+    from parking_ai.engine import search
+    from parking_ai.rules import Rules
+    from parking_ai import export
+    site, cores, ramps, kw = CASES["sample"]
+    res = search(site, cores, ramps=ramps, rules=Rules(effort="fast", floors=1, circ_weight=0, fixed_span=8.5, **kw), log=lambda m: None)
+    st = res[0]["stats"]
+    assert st["spans"] and all(abs(s - 8.5) < 1e-6 for s in st["spans"]), st["spans"]
+    cmp_ = [c for c in st["checks"] if c["item"] == "정형 격자와 자유 간격 비교"]
+    assert cmp_ and "fixed_grid" in st["phase"]
+    export.plan_png(res[0], os.path.join(OUT, "fixed_grid_8.5.png"), 0)
+    _record("정형 기둥 격자 8.5m", f"{st['total_legal']}대 · {cmp_[0]['have']}")
