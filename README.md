@@ -31,12 +31,15 @@
 
 DWG는 캐드에서 DXF로 저장해 넣으세요.
 
-### 2. 실행
-| 방법 | 설명 |
-|---|---|
-| **웹** | (배포 준비 중) 링크를 열고 도면을 끌어 넣으면 됩니다. 설치가 필요 없습니다 |
-| **Windows** | [Releases](https://github.com/UA-Studio/parkplan/releases)에서 묶음을 받아 압축을 풀고 `실행.bat`을 더블클릭합니다. 파이썬 설치가 필요 없습니다 |
-| 개발자 | `pip install -r requirements.txt` → `python -m parking_ai` (화면) 또는 `python -m parking_ai 도면.dxf` |
+### 2. 받기와 실행 (Windows 10·11, 설치 필요 없음)
+1. [**Releases**](https://github.com/UA-Studio/parkplan/releases/latest)에서 `parking_layout_windows_v…zip`을 받습니다.
+2. 오른쪽 클릭 → **모두 압축 풀기**
+3. 풀린 폴더의 **지하주차장 실행.bat**을 더블클릭합니다. "Windows의 PC 보호" 창이 뜨면 추가 정보 → 실행을 누릅니다.
+4. 브라우저에 화면이 열립니다. 검은 창을 닫으면 프로그램이 꺼집니다.
+
+파이썬은 묶음 안에 들어 있어 따로 설치하지 않습니다. 도면과 결과는 내 PC 밖으로 나가지 않습니다(결과: `C:\Users\내이름\지하주차장\`).
+
+개발자는 `pip install -r requirements.txt` 뒤 `python -m parking_ai`(화면) 또는 `python -m parking_ai 도면.dxf`로 실행합니다.
 
 ### 3. 화면에서
 1. 도면 넣기(또는 **예시 도면으로 해보기**)
@@ -63,6 +66,8 @@ DWG는 캐드에서 DXF로 저장해 넣으세요.
 - `main`은 항상 시험을 통과한 상태로 유지합니다. 개선은 브랜치에서 하고 **PR**로 올립니다.
 - 커밋할 때마다 GitHub Actions가 **Linux·Windows**에서 설치, 명령줄 실행, 출력 6종 확인, 기준 대수 회귀 시험을 돌립니다. Linux에서는 화면 시험(브라우저)도 함께 돌립니다. 결과 그림은 Actions 산출물로 남고, PR에는 확인 그림 댓글이 붙습니다.
 - 기준 대수(1층, 동선 가중치 0): 예시 111, 사용자 근사 82, 큰 대지 331, 자동 경사로 338대. 이보다 적으면 실패입니다.
+- **Windows 묶음**: 커밋마다 Actions가 무설치 묶음을 만들고, 깨끗한 Windows에서 한글 경로에 압축을 풀어 `지하주차장 실행.bat` → 출력 6종 → 화면 서버까지 시험합니다. PR에서는 Actions 산출물(`windows-zip`)로 미리 받아 볼 수 있습니다.
+- **새 버전 내기**: `parking_ai/__init__.py`의 `VERSION`·`DATE`를 올린 PR이 main에 합쳐지면, 시험을 통과한 묶음이 Releases에 자동으로 올라갑니다. 파일 이름은 `parking_layout_windows_v{버전}_{날짜}.zip`입니다.
 - 무거운 시험(6.4만㎡ 대지, 구역별 방향, 일방통행)은 주 1회 돌고, 필요하면 수동으로도 돌릴 수 있습니다.
 
 ```bash

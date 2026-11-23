@@ -1,0 +1,133 @@
+name: Windows 묶음
+
+# PR·main 커밋마다: 무설치 묶음을 만들고, 깨끗한 Windows에서 압축을 풀어 더블클릭 실행(.bat)을 시험.
+# main에 새 버전(parking_ai/__init__.py 의 VERSION)이 들어오면 Releases에 자동으로 올림.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: win-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PY_VERSION: "3.12.10"   # 3.12 마지막 Windows 바이너리
+
+jobs:
+  build:
+    name: 묶음 만들기
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      name: ${{ steps.b.outputs.name }}
+      version: ${{ steps.b.outputs.version }}
+      date: ${{ steps.b.outputs.date }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: 내장용 파이썬 받기 (NuGet)
+        run: nuget install python -Version $env:PY_VERSION -OutputDirectory pkg -ExcludeVersion
+      - name: 묶음 만들기
+        id: b
+        env:
+          PYTHONUTF8: "1"
+        run: pkg\python\tools\python.exe -s tools\build_windows.py pkg\python\tools --out dist
+      - uses: actions/upload-artifact@v5
+        with:
+          name: windows-zip
+          path: dist/*.zip
+          compression-level: 0
+          retention-days: 30
+
+  test:
+    name: 깨끗한 Windows에서 실행 시험
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          name: windows-zip
+          path: zip
+      - name: 한글·띄어쓰기 경로에 압축 풀기
+        run: |
+          $dst = "C:\시험 폴더"
+          Expand-Archive -Path (Get-ChildItem zip\*.zip)[0].FullName -DestinationPath $dst
+          Get-ChildItem "$dst\지하주차장_윈도우" | Format-Table Name, Length
+          if (-not (Test-Path "$dst\지하주차장_윈도우\지하주차장 실행.bat")) { throw "실행.bat 없음" }
+      - name: 실행.bat 으로 예시 도면 배치 (시스템 파이썬 없이)
+        run: |
+          $dir = "C:\시험 폴더\지하주차장_윈도우"
+          # 시스템 파이썬이 끼어들지 못하게 PATH 에서 뺌
+          $env:PATH = ($env:PATH -split ';' | Where-Object { $_ -notmatch 'Python|hostedtoolcache' }) -join ';'
+          Set-Content -Path empty.txt -Value ""
+          $a = "/c `"`"$dir\지하주차장 실행.bat`" `"$dir\예시\예시_대지.dxf`" --out `"C:\결과`"`""
+          $p = Start-Process cmd -ArgumentList $a -RedirectStandardInput empty.txt -NoNewWindow -Wait -PassThru
+          foreach ($f in "B1_평면.png", "배치.dxf", "모델.3dm", "결과_층별대수.csv", "결과_요약.txt", "결과_통계.json") {
+            if (-not (Test-Path "C:\결과\$f")) { throw "출력 없음: $f" }
+          }
+          $s = Get-Content "C:\결과\결과_통계.json" -Raw -Encoding UTF8 | ConvertFrom-Json
+          Write-Host "출력 6종 OK"
+          Get-Content "C:\결과\결과_요약.txt" -Encoding UTF8 | Select-Object -First 12
+      - name: 화면 서버 시험
+        run: |
+          $py = "C:\시험 폴더\지하주차장_윈도우\python\python.exe"
+          $env:PYTHONUTF8 = "1"
+          $srv = Start-Process $py -ArgumentList "-s", "-m", "parking_ai", "--no-browser", "--port", "8790" -PassThru -NoNewWindow
+          $ok = $false
+          for ($i = 0; $i -lt 60; $i++) {
+            try { $st = Invoke-RestMethod http://127.0.0.1:8790/api/status; $ok = $true; break } catch { Start-Sleep 1 }
+          }
+          if (-not $ok) { throw "서버가 뜨지 않음" }
+          Write-Host "버전" $st.version
+          $html = Invoke-WebRequest http://127.0.0.1:8790/ -UseBasicParsing
+          if ($html.Content -notmatch "배치 찾기") { throw "화면이 이상함" }
+          $smp = Invoke-RestMethod -Method Post http://127.0.0.1:8790/api/sample
+          Write-Host "예시 도면 열기 OK"
+          Stop-Process $srv.Id
+      - name: 결과 올리기
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: windows-시험결과
+          path: C:\결과\
+          retention-days: 30
+      - name: 요약
+        if: always()
+        run: |
+          "### Windows 묶음: ${{ needs.build.outputs.name }}`n`n깨끗한 Windows에서 압축 풀기 → 실행.bat → 출력 6종 → 화면 서버: **${{ job.status }}**" | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+
+  release:
+    name: Releases에 올리기
+    needs: [build, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v6
+        with:
+          name: windows-zip
+          path: zip
+      - name: 새 버전이면 릴리스 만들기
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.build.outputs.version }}
+          DATE: ${{ needs.build.outputs.date }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "$TAG 릴리스가 이미 있음 — 버전을 올리면 새로 만듭니다."; exit 0
+          fi
+          cat > notes.md <<EOF
+          ## 지하주차장 배치 $TAG (${DATE:0:4}-${DATE:4:2}-${DATE:6:2})
+
+          **받는 법 (Windows 10·11, 64비트, 설치 필요 없음)**
+          1. 아래 \`parking_layout_windows_…zip\`을 받습니다.
+          2. 오른쪽 클릭 → **모두 압축 풀기**
+          3. 풀린 폴더의 **지하주차장 실행.bat**을 더블클릭 ("PC 보호" 창이 뜨면 추가 정보 → 실행)
+
+          이 묶음은 GitHub Actions의 깨끗한 Windows에서 압축 풀기 → 실행 → 출력 6종 확인을 통과한 것입니다.
+          EOF
+          gh release create "$TAG" zip/*.zip --title "지하주차장 배치 $TAG" --notes-file notes.md --target "$GITHUB_SHA"

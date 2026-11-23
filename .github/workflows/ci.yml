@@ -2,7 +2,7 @@ name: 자동 시험
 
 on:
   push:
-    branches: ["**"]
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
@@ -24,8 +24,8 @@ jobs:
       PYTHONIOENCODING: utf-8
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
           cache: pip
@@ -56,7 +56,7 @@ jobs:
                   f.write(f"| {k} | {v} |\n")
       - name: 결과 그림·도면 올리기
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: 시험결과-${{ runner.os }}
           path: test_out/
@@ -71,7 +71,7 @@ jobs:
       contents: write
       pull-requests: write
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v6
         with:
           name: 시험결과-Linux
           path: res
