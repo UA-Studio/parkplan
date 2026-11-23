@@ -1,0 +1,5 @@
+*.bat text eol=crlf
+packaging/windows/*.txt text eol=crlf
+*.dxf binary
+*.ttf binary
+*.woff2 binary
