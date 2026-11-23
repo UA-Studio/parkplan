@@ -70,3 +70,25 @@ def test_bench_regression(name):
     _record(f"기준 대지 {name}", f"{total}대 (기준 {BASELINE[name]}) · {time.time() - t:.0f}초"
             + (f" · 미충족 표시: {', '.join(bad)}" if bad else ""))
     assert total >= BASELINE[name], f"{name}: {total}대 < 기준 {BASELINE[name]}대"
+
+
+def test_target_total():
+    """법정 필요대수(목표): 확인 줄이 생기고, 목표를 채운 안끼리는 동선 감점이 작은 안이 먼저."""
+    from bench import CASES
+    from parking_ai.engine import search, SURPLUS_W
+    from parking_ai.rules import Rules
+    site, cores, ramps, kw = CASES["sample"]
+    # 목표 100대 (예시 대지 1층 최고 111대) → 여러 안이 채움
+    res = search(site, cores, ramps=ramps, rules=Rules(effort="fast", floors=1, target_total=100, **kw), log=lambda m: None)
+    t = [c for c in res[0]["stats"]["checks"] if c.get("target")]
+    assert t and t[0]["ok"], t
+    meet = [r for r in res if r["stats"]["total_legal"] >= 100 and r["rank"][0]]
+    assert meet and res[0] in meet
+    key = lambda r: 100 + SURPLUS_W * (r["stats"]["total_legal"] - 100) - (r["stats"]["total_legal"] - r["stats"]["score"])
+    assert key(res[0]) >= max(key(r) for r in meet) - 1e-6
+    # 목표 500대 → 못 채움: × 표시, 필요 층수 안내
+    res2 = search(site, cores, ramps=ramps, rules=Rules(effort="fast", floors=1, target_total=500, **kw), log=lambda m: None)
+    t2 = [c for c in res2[0]["stats"]["checks"] if c.get("target")][0]
+    assert not t2["ok"] and "부족" in t2["have"] and "층 필요" in t2["have"]
+    assert res2[0]["rank"][0] in (0, 1)  # 목표 미달은 법규 충족 여부(첫 키)에 들어가지 않음
+    _record("법정 필요대수 목표", f"100대 → 안1 {res[0]['stats']['total_legal']}대 충족 · 500대 → {t2['have']}")

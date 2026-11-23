@@ -1565,8 +1565,8 @@ def realize(lay: Layout, floors, full: Rules = None):
     csum = circ.summary(cm, full.circ_weight)
     score = tot_legal - full.circ_weight * cm.get("penalty", 0.0) * floors
     # 그린 경사로 모양(너비·반경)은 배치로 바꿀 수 없어 순위에는 넣지 않고 표시만
-    rank = (1 if all(ch["ok"] for ch in checks if ch["item"] != "전기차 전용구획" and not ch.get("ramp")) else 0,
-            round(score, 3), tot_legal, -len(cols))
+    checks += target_checks(tot_legal, legal[-1], floors, full)
+    rank = rank_of(checks, score, tot_legal, len(cols), full)
     stats = dict(
         grid_angle=round(fr.theta, 2), park_angle=ang, bay=(round(sum(grid["spans"]) / len(grid["spans"]), 2) if grid["spans"] else 0),
         ext_mask=Y.mask, aisle_w=Y.aisle_w, floors=floors,
@@ -1585,6 +1585,40 @@ def realize(lay: Layout, floors, full: Rules = None):
     )
     return dict(frame=fr, layout=lay, rules=full, stalls_b1=acc_stalls, stalls=stalls, columns=cols,
                 drive=drive_u, ramp=lay.ramp, stats=stats, rank=rank, grid=grid, flows=flows, dead=dead_marks, arrows=arrows)
+
+
+SURPLUS_W = 0.25  # 목표를 넘긴 대수는 1대를 0.25로 쳐서, 목표를 채운 안끼리는 동선이 좋은 쪽이 앞서게
+
+
+def target_checks(tot_legal, per_floor_legal, floors, rules):
+    """법정 필요대수(목표) 확인 줄. 목표를 넣지 않았으면 없음."""
+    t = int(rules.target_total or 0)
+    if t <= 0:
+        return []
+    d = tot_legal - t
+    if d >= 0:
+        have = f"{tot_legal}대 — 충족 (+{d})"
+    else:
+        need = math.ceil(t / max(per_floor_legal, 1))
+        have = f"{tot_legal}대 — {-d}대 부족" + (f" · 이 평면이면 {need}개 층 필요" if need > floors else "")
+    return [dict(item="법정 필요대수", need=f"{t}대 이상 (목표)", have=have, ok=d >= 0, target=True)]
+
+
+def rank_of(checks, score, tot_legal, n_cols, rules):
+    """순위 키. (법규 충족, 목표 충족, 점수, 대수, −기둥 수)
+
+    목표가 없으면: 점수 = 법정 대수 − 동선 감점 (예전과 같음).
+    목표가 있으면: 목표를 채운 안이 먼저 오고, 채운 안끼리는 넘긴 대수를 1/4만 쳐서
+    동선 감점이 작은 안이 앞섭니다. 못 채운 안끼리는 예전 점수(대수 위주)로 비교합니다."""
+    lawful = 1 if all(ch["ok"] for ch in checks
+                      if ch["item"] != "전기차 전용구획" and not ch.get("ramp") and not ch.get("target")) else 0
+    t = int(rules.target_total or 0)
+    if t <= 0:
+        return (lawful, 1, round(score, 3), tot_legal, -n_cols)
+    if tot_legal >= t:
+        penalty = tot_legal - score
+        return (lawful, 1, round(t + SURPLUS_W * (tot_legal - t) - penalty, 3), tot_legal, -n_cols)
+    return (lawful, 0, round(score, 3), tot_legal, -n_cols)
 
 
 def legal_count(n, rules):
