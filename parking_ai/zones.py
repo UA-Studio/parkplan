@@ -314,8 +314,9 @@ def merge(site, cores, ramps, obstacles, full, parts, gate, log=print):
     spans = sorted(set(s for R in parts for s in R["stats"]["spans"]))
     allspans = [s for R in parts for s in R["stats"]["spans"]]
     ph = [R["stats"]["phase"] for R in parts]
-    rank = (1 if all(ch["ok"] for ch in checks if ch["item"] != "전기차 전용구획" and not ch.get("ramp")) else 0, round(score, 3), tot_legal,
-            -len(cols))
+    from .engine import rank_of, target_checks
+    checks = checks + target_checks(tot_legal, legal[-1], floors, full)
+    rank = rank_of(checks, score, tot_legal, len(cols), full)
     words = [_dir_word(R) for R in parts]
     zone_text = f"A {words[0]} + B {words[1]}"
     stats = dict(
