@@ -79,6 +79,10 @@ pytest tests/test_ci.py -v           # 커밋마다 도는 시험
 pytest tests/test_gui.py -v          # 화면 시험 (playwright 필요)
 ```
 
+## 다른 도구와 비교
+
+`benchmark/`에 합성 시험 대지(DXF)와 비교 절차, 우리 결과표가 있습니다. [benchmark/비교시험.md](benchmark/비교시험.md)
+
 ## 저장소에 올리지 않는 것
 
 - **개인 도면과 사업지 자료**: `.gitignore`가 `*.dxf`, `*.dwg`, `*.3dm`을 막습니다(합성 예시 `예시/예시_대지.dxf`만 예외). 자기 도면은 화면에서 직접 고릅니다.

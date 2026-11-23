@@ -3,6 +3,7 @@
 *.dwg
 *.3dm
 !예시/예시_대지.dxf
+!benchmark/*.dxf
 test_out/
 *_주차배치/
 # 인증키
